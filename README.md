@@ -21,6 +21,7 @@ Our results demonstrate that LTMP achieves **state-of-the-art accuracy across re
 
 An overview of our framework is shown below. Given any vision transformer, our approach adds  merging (LTM) and pruning (LTP) components with learned threshold masking modules in each transformer block between the Multi-head Self-Attention (MSA) and MLP components. Based on the attention in the MSA, importance scores for each token and similarity scores between tokens are computed.
 Learned threshold masking modules then learn the thresholds that decide which tokens to prune and which ones to merge.
+
 ![framework overview](https://maxim.bonnaerens.com/publication/ltmp/ltmp_schematic_portrait_poster.png)
 
 ## Installation
@@ -29,15 +30,54 @@ Learned threshold masking modules then learn the thresholds that decide which to
 pip install -e .
 ```
 
-## Training
+## Usage
+This repository is based on the vision transformers of [🤗`timm`](https://github.com/huggingface/pytorch-image-models) (v0.7.0dev).
+
+### Training
+LTMP Vision Transformers for training can be used as follows:
+```python
+import timm
+import ltmp
+
+model = timm.create_model("ltmp_vit_base_patch16_224", pretrained=True, tau=0.1, **kwargs)
+```
+
+
 To reproduce the results from the paper run:
+
 
 ```bash
 python tools/train.py /path/to/imagenet/ --model ltmp_deit_small_patch16_224 --pretrained -b 128 --lr 0.000005 0.005 --reduction-target 0.75
 ```
 
+### Inference
+LTMP Vision Transformers for training can be used as follows:
+
+```python
+import timm
+import ltmp
+
+model = timm.create_model("inference_ltmp_vit_base_patch16_224", pretrained=True, tau=0.1, **kwargs)
+```
+
+To check the accuracy of trained models:
+```bash
+python tools/validate_timm.py /path/to/imagenet/ --model ltmp_deit_small_patch16_224 --checkpoint /path/to/checkpoint.pth.tar -b 1
+```
+
+### Adapt to other vision transformers
+See [`./ltmp/timm/lt_mergeprune.py`](./ltmp/timm/lt_mergeprune.py) and [`./ltmp/timm/lt_mergeprune_inference.py`](./ltmp/timm/lt_mergeprune_inference.py) for the changes required to adopt LTMP in a vision transformer.
+[`./tools/train.py`](./tools/train.py) contains the code to train LTMP models.
+
 ## Citation
 If you find this work useful, consider citing it:
 ```bibtex
-
+@inproceedings{
+    bonnaerens2023learned,
+    title={Learned Thresholds Token Merging and Pruning for Vision Transformers},
+    author={Maxim Bonnaerens and Joni Dambre},
+    booktitle={Workshop on Efficient Systems for Foundation Models @ ICML2023},
+    year={2023},
+    url={https://openreview.net/forum?id=19pi10cY8x}
+}
 ```
