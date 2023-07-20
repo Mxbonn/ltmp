@@ -51,7 +51,7 @@ python tools/train.py /path/to/imagenet/ --model ltmp_deit_small_patch16_224 --p
 ```
 
 ### Inference
-LTMP Vision Transformers for training can be used as follows:
+`"ltmp_{vit_model}"` models obtained through the training detailed above can be used for inference by using the following variant which actually prunes and merges tokens.
 
 ```python
 import timm
