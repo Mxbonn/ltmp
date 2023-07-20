@@ -1,5 +1,5 @@
 # Learned Thresholds Token Merging and Pruning for Vision Transformers 
-## [[`ES-FoMo @ICML2023`](https://openreview.net/forum?id=19pi10cY8x)] [[`arXiv`]()] [[`Project site`](maxim.bonnaerens.com/publication/ltmp)]
+## [[`ES-FoMo @ICML2023`](https://openreview.net/forum?id=19pi10cY8x)] [[`arXiv`]()] [[`Project site`](https://maxim.bonnaerens.com/publication/ltmp)]
 
 By Maxim Bonnaerens, and Joni Dambre.
 
@@ -14,14 +14,14 @@ Our results demonstrate that LTMP achieves **state-of-the-art accuracy across re
 
 ## TL;DR
 
-| ![token pruning](maxim.bonnaerens.com/publication/ltmp/85051_prune.png) | + | ![token merging](maxim.bonnaerens.com/publication/ltmp/85051_merge.png) | = | ![token merging and pruning](maxim.bonnaerens.com/publication/ltmp/85051_layer_11.png) |
+| ![token pruning](https://maxim.bonnaerens.com/publication/ltmp/85051_prune.png) | + | ![token merging](https://maxim.bonnaerens.com/publication/ltmp/85051_merge.png) | = | ![token merging and pruning](https://maxim.bonnaerens.com/publication/ltmp/85051_layer_11.png) |
 | - | - | - | - | - |
 
 ## Overview
 
 An overview of our framework is shown below. Given any vision transformer, our approach adds  merging (LTM) and pruning (LTP) components with learned threshold masking modules in each transformer block between the Multi-head Self-Attention (MSA) and MLP components. Based on the attention in the MSA, importance scores for each token and similarity scores between tokens are computed.
 Learned threshold masking modules then learn the thresholds that decide which tokens to prune and which ones to merge.
-![framework overview](maxim.bonnaerens.com/publication/ltmp/ltmp_schematic_portrait_poster.png)
+![framework overview](https://maxim.bonnaerens.com/publication/ltmp/ltmp_schematic_portrait_poster.png)
 
 ## Installation
 
