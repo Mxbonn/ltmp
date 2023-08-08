@@ -3,7 +3,7 @@ from typing import Tuple
 
 import torch
 import torch.nn as nn
-from timm.models.layers import DropPath, Mlp
+from timm.layers import DropPath, Mlp
 from timm.models.registry import register_model
 from timm.models.vision_transformer import Attention, LayerScale, VisionTransformer
 
