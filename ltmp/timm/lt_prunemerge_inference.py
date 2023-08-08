@@ -28,7 +28,7 @@ class InferenceLTPMBlock(nn.Module):
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = LTPMAttention(
+        self.attn = InferenceLTPMAttention(
             dim,
             num_heads=num_heads,
             qkv_bias=qkv_bias,

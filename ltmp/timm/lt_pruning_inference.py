@@ -29,7 +29,7 @@ class InferenceLTPBlock(nn.Module):
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = LTPAttention(
+        self.attn = InferenceLTPAttention(
             dim,
             num_heads=num_heads,
             qkv_bias=qkv_bias,

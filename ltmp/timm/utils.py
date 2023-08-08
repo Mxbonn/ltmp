@@ -1,8 +1,6 @@
-from functools import partial
-from collections import OrderedDict
 import csv
-
-import wandb
+from collections import OrderedDict
+from functools import partial
 
 import torch
 import torch.utils.data
@@ -13,6 +11,8 @@ from timm.data.loader import MultiEpochsDataLoader, PrefetchLoader, _worker_init
 from timm.data.transforms_factory import create_transform
 from timm.models.helpers import build_model_with_cfg, resolve_pretrained_cfg
 from timm.models.vision_transformer import checkpoint_filter_fn
+
+import wandb
 
 
 def create_vision_transformer(transformer_class, variant, pretrained=False, **kwargs):
