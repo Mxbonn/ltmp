@@ -8,7 +8,6 @@ from timm.models.layers import DropPath, Mlp, PatchEmbed
 from timm.models.registry import register_model
 from timm.models.vision_transformer import Attention, Block, LayerScale, VisionTransformer
 
-from ltmp.token_merging import bipartite_soft_matching, merge_wavg
 from ltmp.utils import parse_r
 
 from .utils import create_vision_transformer
@@ -21,21 +20,31 @@ class MBlock(nn.Module):
         num_heads,
         mlp_ratio=4.0,
         qkv_bias=False,
-        drop=0.0,
+        qk_norm=False,
+        proj_drop=0.0,
         attn_drop=0.0,
         init_values=None,
         drop_path=0.0,
         act_layer=nn.GELU,
         norm_layer=nn.LayerNorm,
+        mlp_layer=Mlp,
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = MAttention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        self.attn = MAttention(
+            dim,
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            qk_norm=qk_norm,
+            attn_drop=attn_drop,
+            proj_drop=proj_drop,
+            norm_layer=norm_layer,
+        )
         self.ls1 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         self.norm2 = norm_layer(dim)
-        self.mlp = Mlp(in_features=dim, hidden_features=int(dim * mlp_ratio), act_layer=act_layer, drop=drop)
+        self.mlp = mlp_layer(in_features=dim, hidden_features=int(dim * mlp_ratio), act_layer=act_layer, drop=proj_drop)
         self.ls2 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.r = 0
@@ -83,13 +92,11 @@ class MAttention(Attention):
     def forward(self, x: torch.Tensor, size: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = (
-            qkv[0],
-            qkv[1],
-            qkv[2],
-        )  # make torchscript happy (cannot use tensor as tuple)
+        q, k, v = qkv.unbind(0)
+        q, k = self.q_norm(q), self.k_norm(k)
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
+        q = q * self.scale
+        attn = q @ k.transpose(-2, -1)
 
         # Apply proportional attention
         attn = attn + size.log()[:, None, None, :, 0]
@@ -97,7 +104,8 @@ class MAttention(Attention):
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = attn @ v
+        x = x.transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
 
@@ -106,6 +114,8 @@ class MAttention(Attention):
 
 
 class MVisionTransformer(VisionTransformer):
+    # We need to copy most of timm VisionTransfomer constructor
+    # to change blocks to an nn.ModuleList so it can be used with JIT
     def __init__(
         self,
         img_size=224,
@@ -118,12 +128,16 @@ class MVisionTransformer(VisionTransformer):
         num_heads=12,
         mlp_ratio=4.0,
         qkv_bias=True,
+        qk_norm=False,
         init_values=None,
         class_token=True,
         no_embed_class=False,
         pre_norm=False,
         fc_norm=None,
         drop_rate=0.0,
+        pos_drop_rate=0.0,
+        patch_drop_rate=0.0,
+        proj_drop_rate=0.0,
         attn_drop_rate=0.0,
         drop_path_rate=0.0,
         weight_init="",
@@ -131,6 +145,7 @@ class MVisionTransformer(VisionTransformer):
         norm_layer=None,
         act_layer=None,
         block_fn=Block,
+        mlp_layer=Mlp,
         r=0,
     ):
         super(VisionTransformer, self).__init__()
@@ -159,7 +174,14 @@ class MVisionTransformer(VisionTransformer):
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) if class_token else None
         embed_len = num_patches if no_embed_class else num_patches + self.num_prefix_tokens
         self.pos_embed = nn.Parameter(torch.randn(1, embed_len, embed_dim) * 0.02)
-        self.pos_drop = nn.Dropout(p=drop_rate)
+        self.pos_drop = nn.Dropout(p=pos_drop_rate)
+        if patch_drop_rate > 0:
+            self.patch_drop = PatchDropout(
+                patch_drop_rate,
+                num_prefix_tokens=self.num_prefix_tokens,
+            )
+        else:
+            self.patch_drop = nn.Identity()
         self.norm_pre = norm_layer(embed_dim) if pre_norm else nn.Identity()
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
@@ -170,12 +192,14 @@ class MVisionTransformer(VisionTransformer):
                     num_heads=num_heads,
                     mlp_ratio=mlp_ratio,
                     qkv_bias=qkv_bias,
+                    qk_norm=qk_norm,
                     init_values=init_values,
-                    drop=drop_rate,
+                    proj_drop=proj_drop_rate,
                     attn_drop=attn_drop_rate,
                     drop_path=dpr[i],
                     norm_layer=norm_layer,
                     act_layer=act_layer,
+                    mlp_layer=mlp_layer,
                 )
                 for i in range(depth)
             ]
@@ -184,11 +208,11 @@ class MVisionTransformer(VisionTransformer):
 
         # Classifier Head
         self.fc_norm = norm_layer(embed_dim) if use_fc_norm else nn.Identity()
+        self.head_drop = nn.Dropout(drop_rate)
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
         if weight_init != "skip":
             self.init_weights(weight_init)
-
         r = parse_r(len(self.blocks), r)
         for block in self.blocks:
             block.r = r.pop(0)

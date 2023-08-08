@@ -17,28 +17,36 @@ class InferenceLTPMBlock(nn.Module):
         num_heads,
         mlp_ratio=4.0,
         qkv_bias=False,
-        drop=0.0,
+        qk_norm=False,
+        proj_drop=0.0,
         attn_drop=0.0,
         init_values=None,
         drop_path=0.0,
         act_layer=nn.GELU,
         norm_layer=nn.LayerNorm,
+        mlp_layer=Mlp,
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = InferenceLTPMAttention(
-            dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop
+        self.attn = LTPMAttention(
+            dim,
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            qk_norm=qk_norm,
+            attn_drop=attn_drop,
+            proj_drop=proj_drop,
+            norm_layer=norm_layer,
         )
         self.ls1 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         self.norm2 = norm_layer(dim)
-        self.mlp = Mlp(in_features=dim, hidden_features=int(dim * mlp_ratio), act_layer=act_layer, drop=drop)
+        self.mlp = mlp_layer(in_features=dim, hidden_features=int(dim * mlp_ratio), act_layer=act_layer, drop=proj_drop)
         self.ls2 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         # Add learned threshold masking modules for merging and pruning
-        self.merge_masker = InferenceThresholdMasker() 
+        self.merge_masker = InferenceThresholdMasker()
         self.prune_masker = InferenceThresholdMasker()
         nn.init.constant_(self.merge_masker.threshold, 1)
         nn.init.constant_(self.prune_masker.threshold, 0)
@@ -89,13 +97,11 @@ class InferenceLTPMAttention(Attention):
     def forward(self, x, size):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = (
-            qkv[0],
-            qkv[1],
-            qkv[2],
-        )
+        q, k, v = qkv.unbind(0)
+        q, k = self.q_norm(q), self.k_norm(k)
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
+        q = q * self.scale
+        attn = q @ k.transpose(-2, -1)
 
         attn = attn + size.log()[:, None, None, :, 0]
 
