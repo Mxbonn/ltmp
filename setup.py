@@ -8,7 +8,7 @@ setup(
     install_requires=[
         "torchvision",
         "numpy",
-        "timm==0.9.2",
+        "timm==0.9.5",
         "pillow",
         "tqdm",
         "scipy",
