@@ -31,7 +31,7 @@ pip install -e .
 ```
 
 ## Usage
-This repository is based on the vision transformers of [🤗`timm`](https://github.com/huggingface/pytorch-image-models) (v0.7.0dev).
+This repository is based on the vision transformers of [🤗`timm`](https://github.com/huggingface/pytorch-image-models) (v0.9.5).
 
 ### Training
 LTMP Vision Transformers for training can be used as follows:

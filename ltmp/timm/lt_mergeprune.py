@@ -2,7 +2,7 @@ import math
 
 import torch
 import torch.nn as nn
-from timm.models.layers import DropPath, Mlp
+from timm.layers import DropPath, Mlp
 from timm.models.registry import register_model
 from timm.models.vision_transformer import Attention, LayerScale, VisionTransformer
 
@@ -17,21 +17,31 @@ class LTMPBlock(nn.Module):
         num_heads,
         mlp_ratio=4.0,
         qkv_bias=False,
-        drop=0.0,
+        qk_norm=False,
+        proj_drop=0.0,
         attn_drop=0.0,
         init_values=None,
         drop_path=0.0,
         act_layer=nn.GELU,
         norm_layer=nn.LayerNorm,
+        mlp_layer=Mlp,
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = LTMPAttention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        self.attn = LTMPAttention(
+            dim,
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            qk_norm=qk_norm,
+            attn_drop=attn_drop,
+            proj_drop=proj_drop,
+            norm_layer=norm_layer,
+        )
         self.ls1 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         self.norm2 = norm_layer(dim)
-        self.mlp = Mlp(in_features=dim, hidden_features=int(dim * mlp_ratio), act_layer=act_layer, drop=drop)
+        self.mlp = mlp_layer(in_features=dim, hidden_features=int(dim * mlp_ratio), act_layer=act_layer, drop=proj_drop)
         self.ls2 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
@@ -96,13 +106,11 @@ class LTMPAttention(Attention):
     def forward(self, x, size, mask):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = (
-            qkv[0],
-            qkv[1],
-            qkv[2],
-        )  # make torchscript happy (cannot use tensor as tuple)
+        q, k, v = qkv.unbind(0)
+        q, k = self.q_norm(q), self.k_norm(k)
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
+        q = q * self.scale
+        attn = q @ k.transpose(-2, -1)
 
         # Apply proportional attention (Token merging)
         attn = attn + size[:, None, None, :, 0].log()
@@ -111,7 +119,8 @@ class LTMPAttention(Attention):
         attn = softmax_with_mask(attn, mask, self.training)
         attn = self.attn_drop(attn)
 
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = attn @ v
+        x = x.transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
 

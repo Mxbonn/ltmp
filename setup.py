@@ -8,7 +8,7 @@ setup(
     install_requires=[
         "torchvision",
         "numpy",
-        "timm @ git+ssh://git@github.com/rwightman/pytorch-image-models.git@8ff45e41f7a6aba4d5fdadee7dc3b7f2733df045",
+        "timm==0.9.5",
         "pillow",
         "tqdm",
         "scipy",

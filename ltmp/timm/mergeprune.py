@@ -1,12 +1,11 @@
 import math
-from functools import partial
 from typing import Tuple
 
 import torch
 import torch.nn as nn
-from timm.models.layers import DropPath, Mlp, PatchEmbed
+from timm.layers import DropPath, Mlp
 from timm.models.registry import register_model
-from timm.models.vision_transformer import Attention, Block, LayerScale, VisionTransformer
+from timm.models.vision_transformer import Attention, LayerScale, VisionTransformer
 
 from .utils import create_vision_transformer
 
@@ -18,21 +17,31 @@ class MPBlock(nn.Module):
         num_heads,
         mlp_ratio=4.0,
         qkv_bias=False,
-        drop=0.0,
+        qk_norm=False,
+        proj_drop=0.0,
         attn_drop=0.0,
         init_values=None,
         drop_path=0.0,
         act_layer=nn.GELU,
         norm_layer=nn.LayerNorm,
+        mlp_layer=Mlp,
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = MPAttention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        self.attn = MPAttention(
+            dim,
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            qk_norm=qk_norm,
+            attn_drop=attn_drop,
+            proj_drop=proj_drop,
+            norm_layer=norm_layer,
+        )
         self.ls1 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         self.norm2 = norm_layer(dim)
-        self.mlp = Mlp(in_features=dim, hidden_features=int(dim * mlp_ratio), act_layer=act_layer, drop=drop)
+        self.mlp = mlp_layer(in_features=dim, hidden_features=int(dim * mlp_ratio), act_layer=act_layer, drop=proj_drop)
         self.ls2 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.r_prune = 0
@@ -93,13 +102,11 @@ class MPAttention(Attention):
     def forward(self, x, size):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = (
-            qkv[0],
-            qkv[1],
-            qkv[2],
-        )  # make torchscript happy (cannot use tensor as tuple)
+        q, k, v = qkv.unbind(0)
+        q, k = self.q_norm(q), self.k_norm(k)
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
+        q = q * self.scale
+        attn = q @ k.transpose(-2, -1)
 
         # Apply proportional attention
         attn = attn + size.log()[:, None, None, :, 0]
@@ -107,7 +114,8 @@ class MPAttention(Attention):
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = attn @ v
+        x = x.transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
 
@@ -122,89 +130,8 @@ class MPAttention(Attention):
 
 
 class MPVisionTransformer(VisionTransformer):
-    def __init__(
-        self,
-        img_size=224,
-        patch_size=16,
-        in_chans=3,
-        num_classes=1000,
-        global_pool="token",
-        embed_dim=768,
-        depth=12,
-        num_heads=12,
-        mlp_ratio=4.0,
-        qkv_bias=True,
-        init_values=None,
-        class_token=True,
-        no_embed_class=False,
-        pre_norm=False,
-        fc_norm=None,
-        drop_rate=0.0,
-        attn_drop_rate=0.0,
-        drop_path_rate=0.0,
-        weight_init="",
-        embed_layer=PatchEmbed,
-        norm_layer=None,
-        act_layer=None,
-        block_fn=Block,
-        r=0,
-    ):
-        super(VisionTransformer, self).__init__()
-        assert global_pool in ("", "avg", "token")
-        assert class_token or global_pool != "token"
-        use_fc_norm = global_pool == "avg" if fc_norm is None else fc_norm
-        norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
-        act_layer = act_layer or nn.GELU
-
-        self.num_classes = num_classes
-        self.global_pool = global_pool
-        self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
-        self.num_prefix_tokens = 1 if class_token else 0
-        self.no_embed_class = no_embed_class
-        self.grad_checkpointing = False
-
-        self.patch_embed = embed_layer(
-            img_size=img_size,
-            patch_size=patch_size,
-            in_chans=in_chans,
-            embed_dim=embed_dim,
-            bias=not pre_norm,  # disable bias if pre-norm is used (e.g. CLIP)
-        )
-        num_patches = self.patch_embed.num_patches
-
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) if class_token else None
-        embed_len = num_patches if no_embed_class else num_patches + self.num_prefix_tokens
-        self.pos_embed = nn.Parameter(torch.randn(1, embed_len, embed_dim) * 0.02)
-        self.pos_drop = nn.Dropout(p=drop_rate)
-        self.norm_pre = norm_layer(embed_dim) if pre_norm else nn.Identity()
-
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
-        self.blocks = nn.ModuleList(
-            [
-                block_fn(
-                    dim=embed_dim,
-                    num_heads=num_heads,
-                    mlp_ratio=mlp_ratio,
-                    qkv_bias=qkv_bias,
-                    init_values=init_values,
-                    drop=drop_rate,
-                    attn_drop=attn_drop_rate,
-                    drop_path=dpr[i],
-                    norm_layer=norm_layer,
-                    act_layer=act_layer,
-                )
-                for i in range(depth)
-            ]
-        )
-        self.norm = norm_layer(embed_dim) if not use_fc_norm else nn.Identity()
-
-        # Classifier Head
-        self.fc_norm = norm_layer(embed_dim) if use_fc_norm else nn.Identity()
-        self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
-
-        if weight_init != "skip":
-            self.init_weights(weight_init)
-
+    def __init__(self, r=0, **kwargs):
+        super().__init__(**kwargs)
         merge_r, prune_r = parse_r(len(self.blocks), r)
         for block in self.blocks:
             block.r_merge = merge_r.pop(0)

@@ -1,8 +1,6 @@
-from functools import partial
-from collections import OrderedDict
 import csv
-
-import wandb
+from collections import OrderedDict
+from functools import partial
 
 import torch
 import torch.utils.data
@@ -14,10 +12,19 @@ from timm.data.transforms_factory import create_transform
 from timm.models.helpers import build_model_with_cfg, resolve_pretrained_cfg
 from timm.models.vision_transformer import checkpoint_filter_fn
 
+import wandb
+
 
 def create_vision_transformer(transformer_class, variant, pretrained=False, **kwargs):
     if kwargs.get("features_only", None):
         raise RuntimeError("features_only not implemented for Vision Transformer models.")
+
+    if "flexi" in variant:
+        # FIXME Google FlexiViT pretrained models have a strong preference for bilinear patch / embed
+        # interpolation, other pretrained models resize better w/ anti-aliased bicubic interpolation.
+        _filter_fn = partial(checkpoint_filter_fn, interpolation="bilinear", antialias=False)
+    else:
+        _filter_fn = checkpoint_filter_fn
 
     pretrained_cfg = resolve_pretrained_cfg(variant, pretrained_cfg=kwargs.pop("pretrained_cfg", None))
     model = build_model_with_cfg(
@@ -25,9 +32,8 @@ def create_vision_transformer(transformer_class, variant, pretrained=False, **kw
         variant,
         pretrained,
         pretrained_cfg=pretrained_cfg,
-        pretrained_filter_fn=checkpoint_filter_fn,
+        pretrained_filter_fn=_filter_fn,
         pretrained_strict=False,
-        pretrained_custom_load="npz" in pretrained_cfg["url"],
         **kwargs
     )
     return model
