@@ -1,5 +1,5 @@
 # Learned Thresholds Token Merging and Pruning for Vision Transformers 
-## [[`ES-FoMo @ICML2023`](https://openreview.net/forum?id=19pi10cY8x)] [[`arXiv`]()] [[`Project site`](https://maxim.bonnaerens.com/publication/ltmp)]
+## [[`Transactions on Machine Learning Research (TMLR)`](https://openreview.net/forum?id=WYKTCKpImz)] [[`arXiv`]()] [[`Project site`](https://maxim.bonnaerens.com/publication/ltmp)]
 
 By Maxim Bonnaerens, and Joni Dambre.
 
@@ -72,12 +72,14 @@ See [`./ltmp/timm/lt_mergeprune.py`](./ltmp/timm/lt_mergeprune.py) and [`./ltmp/
 ## Citation
 If you find this work useful, consider citing it:
 ```bibtex
-@inproceedings{
+@article{
     bonnaerens2023learned,
     title={Learned Thresholds Token Merging and Pruning for Vision Transformers},
     author={Maxim Bonnaerens and Joni Dambre},
-    booktitle={Workshop on Efficient Systems for Foundation Models @ ICML2023},
+    journal={Transactions on Machine Learning Research},
+    issn={2835-8856},
     year={2023},
-    url={https://openreview.net/forum?id=19pi10cY8x}
+    url={https://openreview.net/forum?id=WYKTCKpImz},
+    note={}
 }
 ```
