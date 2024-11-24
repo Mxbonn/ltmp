@@ -1,5 +1,5 @@
 # Learned Thresholds Token Merging and Pruning for Vision Transformers 
-## [[`Transactions on Machine Learning Research (TMLR)`](https://openreview.net/forum?id=WYKTCKpImz)] [[`arXiv`]()] [[`Project site`](https://maxim.bonnaerens.com/publication/ltmp)]
+## [[`Transactions on Machine Learning Research (TMLR)`](https://openreview.net/forum?id=WYKTCKpImz)] [[`arXiv`](https://arxiv.org/abs/2307.10780)] [[`Project site`](https://maxim.bonnaerens.com/publication/ltmp)]
 
 By Maxim Bonnaerens, and Joni Dambre.
 
